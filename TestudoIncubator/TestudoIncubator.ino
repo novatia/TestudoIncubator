@@ -6,6 +6,9 @@
 #include <EEPROM.h>
 #include <PID_v1.h>
 
+#include "RuntimeSettings.h"
+#include "SystemSettings.h"
+
 #define TESTUDO_INCUBATOR_TITLE "Testudo Incubator"
 
 #define ON true
@@ -33,20 +36,17 @@
 #define LCD_D7 25
 #define LIGHT_PIN 14
 
-#define EEPROM_CURRENT_DAY_ADDRESS 0
-#define EEPROM_IP_ADDRESS_ADDRESS EEPROM_CURRENT_DAY_ADDRESS + 4          // 4
-#define EEPROM_SUBNET_MASK_ADDRESS EEPROM_IP_ADDRESS_ADDRESS + 20         // 24
-#define EEPROM_MAC_ADDRESS_ADDRESS EEPROM_SUBNET_MASK_ADDRESS + 20        // 44 
-#define EEPROM_TARGET_TEMP_ADDRESS EEPROM_MAC_ADDRESS_ADDRESS + 20        // 64
-#define EEPROM_TARGET_HUMIDITY_ADDRESS EEPROM_TARGET_TEMP_ADDRESS + 4     // 68
-#define EEPROM_CURRENT_COUNTER_ADDRESS EEPROM_TARGET_HUMIDITY_ADDRESS + 4 // 72
-#define EEPROM_RUNNING_STATE EEPROM_CURRENT_COUNTER_ADDRESS + 4
-#define EEPROM_ID EEPROM_RUNNING_STATE + 4
 
+SystemSettings g_SystemSettings;
+RuntimeSettings g_RuntimeSettings;
+
+#define EEPROM_SYSTEM_SETTINGS_ADDRESS 0
+#define EEPROM_RUNTIME_SETTINGS_ADDRESS EEPROM_SYSTEM_SETTINGS_ADDRESS + sizeof(SystemSettings)
+   
 
 #define LOG_INTERVAL 1000
 
-unsigned int id = 0;
+//unsigned int id = 0;
 
 const unsigned long BATCH_START_DAY = 0;
 const int chipSelect = 10; // SD card CS pin
@@ -54,11 +54,6 @@ const int chipSelect = 10; // SD card CS pin
 File dataFile; // File object to write data
 
 // Define web server details
-byte macAddress[] = { 0x90, 0xA2, 0xDA, 0x00, 0x52, 0xC7 };
-  
-IPAddress ipAddress(192, 168, 60, 177);
-IPAddress subnetMask(255, 255, 254, 0);
-
 EthernetServer server = EthernetServer(SERVICE_PORT);
 
 EthernetLinkStatus g_LinkStatus;
@@ -77,23 +72,22 @@ double Kp_temp = 1.0;
 double Ki_temp = 0.1;
 double Kd_temp = 0.05;
 
-double setpoint_temp = 30.0; // Default target temperature
+
 //float integral_temp = 0;
 //float lastError_temp = 0;
 double temperature = 0.0;
 double pid_temp  = 0;
 
-PID g_TemperaturePID(&temperature, &pid_temp, &setpoint_temp, Kp_temp, Ki_temp, Kd_temp, DIRECT);
+PID g_TemperaturePID(&temperature, &pid_temp, &g_SystemSettings.setpoint_temp, Kp_temp, Ki_temp, Kd_temp, DIRECT);
 
 double Kp_humidity = 1.0;
 double Ki_humidity = 0.1;
 double Kd_humidity = 0.05;
 
-double setpoint_humidity = 70.0; // Default target humidity
 double humidity = 0.0;
 double pid_humidity =0;
 
-PID g_HumidityePID(&humidity, &pid_humidity, &setpoint_humidity, Kp_humidity, Ki_humidity, Kd_humidity, DIRECT);
+PID g_HumidityePID(&humidity, &pid_humidity, &g_SystemSettings.setpoint_humidity, Kp_humidity, Ki_humidity, Kd_humidity, DIRECT);
 
 // Other global variables
 unsigned long previousMillis = 0;
@@ -101,9 +95,7 @@ const long interval = 1000;  // Logging interval in milliseconds
 unsigned long previousLogMillis = 0;
 const long logInterval = 60000;  // Log data interval in milliseconds
 unsigned long startDay = 0;
-unsigned long currentDay = 0;
-unsigned long g_CurrentCounter = 0;
-bool counting = false;
+
 bool g_SDEnabled = false;
 
 //heater state
@@ -243,7 +235,7 @@ void setup_Ethernet()
 {
 // Configure Ethernet settings with restored values
   Ethernet.init(ETH_SS_PIN);  // use pin 10 for Ethernet CS
-  Ethernet.begin(macAddress, ipAddress, subnetMask);
+  Ethernet.begin(g_SystemSettings.macAddress, g_SystemSettings.ipAddress, g_SystemSettings.subnetMask);
 
   EthernetHardwareStatus status = Ethernet.hardwareStatus();
 
@@ -320,15 +312,6 @@ void setup()
   setup_PID();
   setup_Timer();
  
-
-
-  if (SERIAL_DEBUG)
-  {
-   Serial.println(currentDay);
-   Serial.println(setpoint_temp);
-   Serial.println(setpoint_humidity);
-  }
-
   LogMessage("Boot OK " VERSION);
 }
 
@@ -356,7 +339,7 @@ void setup_Timer()
 // Action to be taken every second
 ISR(TIMER3_COMPA_vect)
 { // ISR for Timer3
-  g_CurrentCounter++;
+  g_RuntimeSettings.currentCounter++;
 }
 
 
@@ -412,7 +395,7 @@ void loop()
   temperature = readTemperature();
   humidity = readHumidity();
 
-  if (!counting)
+  if (!g_RuntimeSettings.counting)
     Off();
   else {
     loop_PID();
@@ -421,19 +404,18 @@ void loop()
     logData(temperature, humidity);
 
     // Count days
-    if (counting)
+    if (g_RuntimeSettings.counting)
     {
       unsigned long currentMillis = millis();
       if (currentMillis - previousMillis >= interval)
       {
         previousMillis = currentMillis;
 
-        //g_CurrentCounter++;
         SaveRuntimeSettings();
-        if ( g_CurrentCounter >= 24*60*60 )
+        if ( g_RuntimeSettings.currentCounter >= 24*60*60 )
         {
-          g_CurrentCounter = 0;
-          currentDay++;
+          g_RuntimeSettings.currentCounter = 0;
+          g_RuntimeSettings.currentDay++;
           SaveRuntimeSettings();
         }
       }
@@ -451,7 +433,7 @@ void start()
     // Start counting
     if (SERIAL_DEBUG)
       Serial.println("Start counting");
-    counting = true;
+    g_RuntimeSettings.counting = true;
     SaveRuntimeSettings();
 }
 
@@ -459,7 +441,7 @@ void stop(){
 // Stop counting
     if (SERIAL_DEBUG)
       Serial.println("Stop counting");
-    counting = false;
+    g_RuntimeSettings.counting = false;
     SaveRuntimeSettings();
 }
 
@@ -470,8 +452,8 @@ void reset()
 {
     if (SERIAL_DEBUG)
       Serial.println("Reset counting");
-    currentDay = BATCH_START_DAY;
-    g_CurrentCounter = 0;
+    g_RuntimeSettings.currentDay = BATCH_START_DAY;
+    g_RuntimeSettings.currentCounter = 0;
 }
 
 
@@ -482,14 +464,14 @@ void export_metrics(EthernetClient client){
   metric += "sensor_temperature ";
   metric += temperature;
   metric += " {sensor=\"DHT22\", id=\"";
-  metric += String(id);
+  metric += String(g_SystemSettings.id);
   metric += "\"} \n";
 
   metric += "# HELP " TESTUDO_INCUBATOR_TITLE " Humidity reading\n";
   metric += "sensor_humidity ";
   metric += humidity;
   metric += " {sensor=\"DHT22\", id=\"";
-  metric += String(id);
+  metric += String(g_SystemSettings.id);
   metric += "\"} \n";
  }
 }
@@ -600,11 +582,11 @@ void processRequest(EthernetClient client)
     String setpoint_humidityParam= getValue(body, "setpoint_humidity");
     String decoded = urlDecode(macAddressParam);
 
-    id = atoi(idParam.c_str());
+    g_SystemSettings.id = atoi(idParam.c_str());
     if (SERIAL_DEBUG)
     {
       Serial.print("ID:");
-      Serial.println(id);
+      Serial.println(g_SystemSettings.id);
       Serial.print("New IP Address:");
       Serial.println(ipAddressParam);
       Serial.print("New Subnet Mask:");
@@ -623,7 +605,7 @@ void processRequest(EthernetClient client)
 
     //ip address
     if (new_ipAddress.fromString(ipAddressParam))
-      ipAddress = new_ipAddress;
+      g_SystemSettings.ipAddress = new_ipAddress;
     else
       response = "ERROR: IP Address is not valid.";
     
@@ -631,7 +613,7 @@ void processRequest(EthernetClient client)
     //subnet
     IPAddress new_subnetMask;
     if (new_subnetMask.fromString(subnetMaskParam))
-      subnetMask = new_subnetMask;
+      g_SystemSettings.subnetMask = new_subnetMask;
     else
       response = "ERROR: Subnet mask is not valid.";
     
@@ -640,21 +622,21 @@ void processRequest(EthernetClient client)
     byte new_macAddress[6];
     if (parseMACAddress(decoded, new_macAddress))
     {
-      memcpy(new_macAddress,macAddress, sizeof(macAddress));
+      memcpy(new_macAddress,g_SystemSettings.macAddress, sizeof(g_SystemSettings.macAddress));
     }
 
 
     //setpoint temperature
-    if (!tryParseDouble(setpoint_tempParam, setpoint_temp))
+    if (!tryParseDouble(setpoint_tempParam, g_SystemSettings.setpoint_temp))
       response = "Temperature setpoint is not a number.";
 
     //setpoint humidity
-    if (!tryParseDouble(setpoint_humidityParam, setpoint_humidity))
+    if (!tryParseDouble(setpoint_humidityParam, g_SystemSettings.setpoint_humidity))
       response = "Humidity setpoint is not a number.";
 
-    Serial.print(setpoint_humidity);
+    Serial.print(g_SystemSettings.setpoint_humidity);
     SaveSettings();
-    Serial.print(setpoint_humidity);
+    Serial.print(g_SystemSettings.setpoint_humidity);
   }else  if (action == "air_circulation" ) {
     // Extract the state parameter from the request
     bool enable = false;
@@ -725,45 +707,45 @@ void processRequest(EthernetClient client)
 
 
     client.print("<div class=\"row\"><div class=\"cell\">ID:</div> <div class=\"cell\"><input type='text' name='id' value='");
-    client.print(id);
+    client.print(g_SystemSettings.id);
     client.print("'></div></div>");
 
     client.print("<div class=\"row\"><div class=\"cell\">IP Address:</div> <div class=\"cell\"><input type='text' name='ip_address' value='");
     
     //print ip
-    client.print(ipAddress[0]);
+    client.print(g_SystemSettings.ipAddress[0]);
     client.print(".");
-    client.print(ipAddress[1]);
+    client.print(g_SystemSettings.ipAddress[1]);
     client.print(".");
-    client.print(ipAddress[2]);
+    client.print(g_SystemSettings.ipAddress[2]);
     client.print(".");
-    client.print(ipAddress[3]);
+    client.print(g_SystemSettings.ipAddress[3]);
     client.print("'></div></div>");
 
     client.print("<div class=\"row\"><div class=\"cell\">Subnet Mask</div> <div class=\"cell\"><input type='text' name='subnet_mask' value='");
     //print mask
-    client.print(subnetMask[0]);
+    client.print(g_SystemSettings.subnetMask[0]);
     client.print(".");
-    client.print(subnetMask[1]);
+    client.print(g_SystemSettings.subnetMask[1]);
     client.print(".");
-    client.print(subnetMask[2]);
+    client.print(g_SystemSettings.subnetMask[2]);
     client.print(".");
-    client.print(subnetMask[3]);
+    client.print(g_SystemSettings.subnetMask[3]);
     client.print("'></div></div>");
 
     client.print("<div class=\"row\"><div class=\"cell\">MAC Address</div> <div class=\"cell\"><input type='text' name='mac_address' value='");
     //print mac
-    client.print(mac2String(macAddress));
+    client.print(mac2String(g_SystemSettings.macAddress));
     client.print("'></div></div>");
 
     //setpoint_temp
     client.print("<div class=\"row\"><div class=\"cell\">Temperature Setpoint</div> <div class=\"cell\"><input type='text' name='setpoint_temp' value='");
-    client.print(setpoint_temp);
+    client.print(g_SystemSettings.setpoint_temp);
     client.print("'></div></div>");
 
     //setpoint_humidity
     client.print("<div class=\"row\"><div class=\"cell\">Humidity Setpoint</div> <div class=\"cell\"><input type='text' name='setpoint_humidity' value='");
-    client.print(setpoint_humidity);
+    client.print(g_SystemSettings.setpoint_humidity);
     client.print("'></div></div>");
 
     client.print("<div class=\"row\"><div class=\"cell\"><button class='btn' name='submit' value='true'>Save Settings</button></div></div>");
@@ -784,7 +766,7 @@ void processRequest(EthernetClient client)
 
     // System status
     client.print("<div class=\"row\"><div class=\"cell\">System Status</div>");
-    if (counting)
+    if (g_RuntimeSettings.counting)
       client.print("<div class=\"cell\">Running</div>");
     else 
       client.print("<div class=\"cell\">Not Running</div>");
@@ -803,12 +785,12 @@ void processRequest(EthernetClient client)
     
     //Current Counter
     client.print("<div class=\"row\"><div class=\"cell\">Current counter</div><div class=\"cell\">");
-    client.print(g_CurrentCounter);
+    client.print(g_RuntimeSettings.currentCounter);
     client.print("</div></div>");
 
     //Current Day
     client.print("<div class=\"row\"><div class=\"cell\">Current day</div><div class=\"cell\">");
-    client.print(currentDay);
+    client.print(g_RuntimeSettings.currentDay);
     client.print("</div></div>");
 
     //Start day
@@ -876,7 +858,7 @@ void processRequest(EthernetClient client)
 
 client.print("<h3>Temperature PID</h3>");
 client.print("<p>Setpoint:");
-client.print(setpoint_temp);
+client.print(g_SystemSettings.setpoint_temp);
 client.print("</p><p>KP:");
 client.print(Kp_temp);
 client.print("</p><p>KI:");
@@ -889,7 +871,7 @@ client.print("</p>");
 
 client.print("<h3>Humidity PID</h3>");
 client.print("<p>Setpoint:");
-client.print(setpoint_humidity);
+client.print(g_SystemSettings.setpoint_humidity);
 client.print("</p><p>KP:");
 client.print(Kp_humidity);
 client.print("</p><p>KI:");
@@ -923,15 +905,20 @@ client.print(pid_humidity);
   }
 
   
+  
   void SaveSettings()
   {
-    EEPROM.put(EEPROM_IP_ADDRESS_ADDRESS, ipAddress);
+   
+    SaveRuntimeSettings();
+    EEPROM.put(EEPROM_SYSTEM_SETTINGS_ADDRESS, g_SystemSettings);
+    
+    /*EEPROM.put(EEPROM_IP_ADDRESS_ADDRESS, ipAddress);
     EEPROM.put(EEPROM_SUBNET_MASK_ADDRESS, subnetMask);
     EEPROM.put(EEPROM_MAC_ADDRESS_ADDRESS, macAddress);
     EEPROM.put(EEPROM_TARGET_TEMP_ADDRESS, setpoint_temp);
     EEPROM.put(EEPROM_TARGET_HUMIDITY_ADDRESS, setpoint_humidity);
     EEPROM.put(EEPROM_ID, id);
-
+  */
 
     writeHash();
   }
@@ -950,10 +937,12 @@ void writeHash()
 
 void SaveRuntimeSettings()
 {
-  EEPROM.put(EEPROM_CURRENT_DAY_ADDRESS, currentDay);
-  EEPROM.put(EEPROM_CURRENT_COUNTER_ADDRESS, g_CurrentCounter );
-  EEPROM.put(EEPROM_RUNNING_STATE, counting );
-
+  
+  /*
+  EEPROM.put(EEPROM_CURRENT_DAY_ADDRESS, g_RuntimeSettings.currentDay);
+  EEPROM.put(EEPROM_CURRENT_COUNTER_ADDRESS, g_RuntimeSettings.currentCounter );
+  EEPROM.put(EEPROM_RUNNING_STATE, g_RuntimeSettings.counting );
+  */
   writeHash();
 }
 
@@ -964,15 +953,20 @@ void SaveRuntimeSettings()
     if (SERIAL_DEBUG)
       Serial.println("Loading EEPROM settings");
 
-    EEPROM.get(EEPROM_CURRENT_DAY_ADDRESS, currentDay);
-    EEPROM.get(EEPROM_CURRENT_COUNTER_ADDRESS, g_CurrentCounter );
-    EEPROM.get(EEPROM_IP_ADDRESS_ADDRESS, ipAddress);
-    EEPROM.get(EEPROM_SUBNET_MASK_ADDRESS, subnetMask);
-    EEPROM.get(EEPROM_MAC_ADDRESS_ADDRESS, macAddress);
-    EEPROM.get(EEPROM_TARGET_TEMP_ADDRESS, setpoint_temp);
-    EEPROM.get(EEPROM_TARGET_HUMIDITY_ADDRESS, setpoint_humidity);
-    EEPROM.get(EEPROM_RUNNING_STATE, counting);
-    EEPROM.get(EEPROM_ID, id);
+    EEPROM.get(EEPROM_RUNTIME_SETTINGS_ADDRESS, g_RuntimeSettings);
+    EEPROM.get(EEPROM_SYSTEM_SETTINGS_ADDRESS, g_SystemSettings);
+    
+
+    /*EEPROM.get(EEPROM_CURRENT_DAY_ADDRESS, g_RuntimeSettings.currentDay);
+    EEPROM.get(EEPROM_CURRENT_COUNTER_ADDRESS, g_RuntimeSettings.CurrentCounter );
+    EEPROM.get(EEPROM_IP_ADDRESS_ADDRESS, g_SystemSettings.ipAddress);
+    EEPROM.get(EEPROM_SUBNET_MASK_ADDRESS, g_SystemSettings.subnetMask);
+    EEPROM.get(EEPROM_MAC_ADDRESS_ADDRESS, g_SystemSettings.macAddress);
+    EEPROM.get(EEPROM_TARGET_TEMP_ADDRESS, g_SystemSettings.setpoint_temp);
+    EEPROM.get(EEPROM_TARGET_HUMIDITY_ADDRESS, g_SystemSettings.setpoint_humidity);
+    EEPROM.get(EEPROM_RUNNING_STATE, g_RuntimeSettings.counting);
+    EEPROM.get(EEPROM_ID, g_SystemSettings.id);
+    */
   }
   
 float readTemperature() {
