@@ -43,7 +43,8 @@
 
 
 #define LOG_INTERVAL 1000
-bool g_EEPROM_initialized=false;
+
+unsigned int id = 0;
 
 const unsigned long BATCH_START_DAY = 0;
 const int chipSelect = 10; // SD card CS pin
@@ -471,6 +472,28 @@ void reset()
     g_CurrentCounter = 0;
 }
 
+
+void export_metrics(EthernetClient client){
+ if (client)
+ {
+   String metric = "# HELP " TESTUDO_INCUBATOR_TITLE " Temperature reading\n";
+  metric += "sensor_temperature ";
+  metric += temp;
+  metric += " {sensor=\"DHT22\", id=\"";
+  metric += String(id);
+  metric += "\"} \n";
+
+  metric += "# HELP " TESTUDO_INCUBATOR_TITLE " Humidity reading\n";
+  metric += "sensor_humidity ";
+  metric += humidity;
+  metric += " {sensor=\"DHT22\", id=\"";
+  metric += String(id);
+  metric += "\"} \n";
+ }
+}
+
+
+
 void processRequest(EthernetClient client)
 {
   if (client) {
@@ -547,6 +570,9 @@ void processRequest(EthernetClient client)
   // Perform actions based on the request
   if (action == "start") {
     start();
+  } else if (action == "export_metrics") {
+    export_metrics(client);
+    return;
   } else if (action == "stop"){
     stop();
   } else if (action == "reboot"){
@@ -893,7 +919,7 @@ client.print(pid_humidity);
     EEPROM.put(EEPROM_MAC_ADDRESS_ADDRESS, macAddress);
     EEPROM.put(EEPROM_TARGET_TEMP_ADDRESS, setpoint_temp);
     EEPROM.put(EEPROM_TARGET_HUMIDITY_ADDRESS, setpoint_humidity);
-    EEPROM.put(EEPROM_ID,id);
+    EEPROM.put(EEPROM_ID, id);
 
 
     writeHash();
