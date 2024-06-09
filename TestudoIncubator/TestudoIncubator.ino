@@ -38,6 +38,9 @@
 #define EEPROM_TARGET_TEMP_ADDRESS EEPROM_MAC_ADDRESS_ADDRESS + 20        // 64
 #define EEPROM_TARGET_HUMIDITY_ADDRESS EEPROM_TARGET_TEMP_ADDRESS + 4     // 68
 #define EEPROM_CURRENT_COUNTER_ADDRESS EEPROM_TARGET_HUMIDITY_ADDRESS + 4 // 72
+#define EEPROM_RUNNING_STATE EEPROM_CURRENT_COUNTER_ADDRESS + 4
+#define EEPROM_ID EEPROM_RUNNING_STATE + 4
+
 
 #define LOG_INTERVAL 1000
 bool g_EEPROM_initialized=false;
@@ -440,6 +443,26 @@ void loop()
   updateLCD(temperature, humidity);
 }
 
+void start()
+{
+    // Start counting
+    if (SERIAL_DEBUG)
+      Serial.println("Start counting");
+    counting = true;
+    SaveRuntimeSettings();
+}
+
+void stop(){
+// Stop counting
+    if (SERIAL_DEBUG)
+      Serial.println("Stop counting");
+    counting = false;
+    SaveRuntimeSettings();
+}
+
+void(* reboot) (void) = 0;//declare reset function at address 0
+
+
 void reset()
 {
     if (SERIAL_DEBUG)
@@ -523,20 +546,13 @@ void processRequest(EthernetClient client)
 
   // Perform actions based on the request
   if (action == "start") {
-    // Start counting
-    if (SERIAL_DEBUG)
-      Serial.println("Start counting");
-    counting = true;
-  } else if (action == "stop") {
-    // Stop counting
-    if (SERIAL_DEBUG)
-      Serial.println("Stop counting");
-    counting = false;
+    start();
+  } else if (action == "stop"){
+    stop();
+  } else if (action == "reboot"){
+    reboot();
   } else if (action == "reset") {
-    // Reset counter
- 
     reset();
-   
   } else if (action == "light_on") {
     g_Light = true;
     // Turn light on
@@ -667,6 +683,7 @@ void processRequest(EthernetClient client)
     client.print("<button class='btn' name='action' value='reset'>Reset hatching Counter</button>");
     client.print("<button class='btn' name='action' value='light_on'>Turn Light On</button>");
     client.print("<button class='btn' name='action' value='light_off'>Turn Light Off</button>");
+    client.print("<button class='btn' name='action' value='reboot'>Reboot Arduino</button>");
     client.print("</form>");
 
 
@@ -876,6 +893,7 @@ client.print(pid_humidity);
     EEPROM.put(EEPROM_MAC_ADDRESS_ADDRESS, macAddress);
     EEPROM.put(EEPROM_TARGET_TEMP_ADDRESS, setpoint_temp);
     EEPROM.put(EEPROM_TARGET_HUMIDITY_ADDRESS, setpoint_humidity);
+    EEPROM.put(EEPROM_ID,id);
 
 
     writeHash();
@@ -897,6 +915,7 @@ void SaveRuntimeSettings()
 {
   EEPROM.put(EEPROM_CURRENT_DAY_ADDRESS, currentDay);
   EEPROM.put(EEPROM_CURRENT_COUNTER_ADDRESS, g_CurrentCounter );
+  EEPROM.put(EEPROM_RUNNING_STATE, counting );
 
   writeHash();
 }
@@ -915,6 +934,8 @@ void SaveRuntimeSettings()
     EEPROM.get(EEPROM_MAC_ADDRESS_ADDRESS, macAddress);
     EEPROM.get(EEPROM_TARGET_TEMP_ADDRESS, setpoint_temp);
     EEPROM.get(EEPROM_TARGET_HUMIDITY_ADDRESS, setpoint_humidity);
+    EEPROM.get(EEPROM_RUNNING_STATE, counting);
+    EEPROM.get(EEPROM_ID, id);
   }
   
 float readTemperature() {
