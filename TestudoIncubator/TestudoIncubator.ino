@@ -592,7 +592,7 @@ void processRequest(EthernetClient client)
   } else if (action == "save_settings") {
     // Save IP address, subnet mask, and MAC address to EEPROM
     // Extract parameters from the request (if any)
-    String id= getValue(body, "id");
+    String idParam= getValue(body, "id");
     String ipAddressParam = getValue(body, "ip_address");
     String subnetMaskParam = getValue(body, "subnet_mask");
     String macAddressParam = getValue(body, "mac_address");
@@ -600,6 +600,7 @@ void processRequest(EthernetClient client)
     String setpoint_humidityParam= getValue(body, "setpoint_humidity");
     String decoded = urlDecode(macAddressParam);
 
+    id = atoi(idParam);
     if (SERIAL_DEBUG)
     {
       Serial.print("ID:");
