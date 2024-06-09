@@ -600,7 +600,7 @@ void processRequest(EthernetClient client)
     String setpoint_humidityParam= getValue(body, "setpoint_humidity");
     String decoded = urlDecode(macAddressParam);
 
-    id = atoi(idParam);
+    id = atoi(idParam.c_str());
     if (SERIAL_DEBUG)
     {
       Serial.print("ID:");
