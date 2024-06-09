@@ -36,17 +36,14 @@
 #define LCD_D7 25
 #define LIGHT_PIN 14
 
-
-SystemSettings g_SystemSettings;
-RuntimeSettings g_RuntimeSettings;
-
 #define EEPROM_SYSTEM_SETTINGS_ADDRESS 0
 #define EEPROM_RUNTIME_SETTINGS_ADDRESS EEPROM_SYSTEM_SETTINGS_ADDRESS + sizeof(SystemSettings)
    
 
 #define LOG_INTERVAL 1000
 
-//unsigned int id = 0;
+SystemSettings g_SystemSettings;
+RuntimeSettings g_RuntimeSettings;
 
 const unsigned long BATCH_START_DAY = 0;
 const int chipSelect = 10; // SD card CS pin
@@ -582,11 +579,10 @@ void processRequest(EthernetClient client)
     String setpoint_humidityParam= getValue(body, "setpoint_humidity");
     String decoded = urlDecode(macAddressParam);
 
-    g_SystemSettings.id = atoi(idParam.c_str());
     if (SERIAL_DEBUG)
     {
       Serial.print("ID:");
-      Serial.println(g_SystemSettings.id);
+      Serial.println(idParam);
       Serial.print("New IP Address:");
       Serial.println(ipAddressParam);
       Serial.print("New Subnet Mask:");
@@ -634,9 +630,9 @@ void processRequest(EthernetClient client)
     if (!tryParseDouble(setpoint_humidityParam, g_SystemSettings.setpoint_humidity))
       response = "Humidity setpoint is not a number.";
 
-    Serial.print(g_SystemSettings.setpoint_humidity);
+    g_SystemSettings.id = atoi(idParam.c_str());
+
     SaveSettings();
-    Serial.print(g_SystemSettings.setpoint_humidity);
   }else  if (action == "air_circulation" ) {
     // Extract the state parameter from the request
     bool enable = false;
@@ -908,20 +904,21 @@ client.print(pid_humidity);
   
   void SaveSettings()
   {
-   
+    SaveSystemSettings();
     SaveRuntimeSettings();
-    EEPROM.put(EEPROM_SYSTEM_SETTINGS_ADDRESS, g_SystemSettings);
-    
-    /*EEPROM.put(EEPROM_IP_ADDRESS_ADDRESS, ipAddress);
-    EEPROM.put(EEPROM_SUBNET_MASK_ADDRESS, subnetMask);
-    EEPROM.put(EEPROM_MAC_ADDRESS_ADDRESS, macAddress);
-    EEPROM.put(EEPROM_TARGET_TEMP_ADDRESS, setpoint_temp);
-    EEPROM.put(EEPROM_TARGET_HUMIDITY_ADDRESS, setpoint_humidity);
-    EEPROM.put(EEPROM_ID, id);
-  */
-
-    writeHash();
   }
+
+
+
+void SaveSystemSettings()
+{
+  if (SERIAL_DEBUG)
+      Serial.println("Save EEPROM system settings");
+
+  EEPROM.put(EEPROM_SYSTEM_SETTINGS_ADDRESS, g_SystemSettings);
+  writeHash();
+}
+
 
 uint8_t getHash()
 {
@@ -937,12 +934,10 @@ void writeHash()
 
 void SaveRuntimeSettings()
 {
-  
-  /*
-  EEPROM.put(EEPROM_CURRENT_DAY_ADDRESS, g_RuntimeSettings.currentDay);
-  EEPROM.put(EEPROM_CURRENT_COUNTER_ADDRESS, g_RuntimeSettings.currentCounter );
-  EEPROM.put(EEPROM_RUNNING_STATE, g_RuntimeSettings.counting );
-  */
+  if (SERIAL_DEBUG)
+    Serial.println("Save EEPROM runtime settings");
+
+  EEPROM.put(EEPROM_RUNTIME_SETTINGS_ADDRESS, g_RuntimeSettings);
   writeHash();
 }
 
@@ -955,18 +950,6 @@ void SaveRuntimeSettings()
 
     EEPROM.get(EEPROM_RUNTIME_SETTINGS_ADDRESS, g_RuntimeSettings);
     EEPROM.get(EEPROM_SYSTEM_SETTINGS_ADDRESS, g_SystemSettings);
-    
-
-    /*EEPROM.get(EEPROM_CURRENT_DAY_ADDRESS, g_RuntimeSettings.currentDay);
-    EEPROM.get(EEPROM_CURRENT_COUNTER_ADDRESS, g_RuntimeSettings.CurrentCounter );
-    EEPROM.get(EEPROM_IP_ADDRESS_ADDRESS, g_SystemSettings.ipAddress);
-    EEPROM.get(EEPROM_SUBNET_MASK_ADDRESS, g_SystemSettings.subnetMask);
-    EEPROM.get(EEPROM_MAC_ADDRESS_ADDRESS, g_SystemSettings.macAddress);
-    EEPROM.get(EEPROM_TARGET_TEMP_ADDRESS, g_SystemSettings.setpoint_temp);
-    EEPROM.get(EEPROM_TARGET_HUMIDITY_ADDRESS, g_SystemSettings.setpoint_humidity);
-    EEPROM.get(EEPROM_RUNNING_STATE, g_RuntimeSettings.counting);
-    EEPROM.get(EEPROM_ID, g_SystemSettings.id);
-    */
   }
   
 float readTemperature() {
