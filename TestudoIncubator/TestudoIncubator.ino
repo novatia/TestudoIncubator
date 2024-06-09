@@ -6,6 +6,8 @@
 #include <EEPROM.h>
 #include <PID_v1.h>
 
+#define TESTUDO_INCUBATOR_TITLE "Testudo Incubator"
+
 #define ON true
 #define OFF false
 #define VERSION "1.0b"
@@ -478,7 +480,7 @@ void export_metrics(EthernetClient client){
  {
    String metric = "# HELP " TESTUDO_INCUBATOR_TITLE " Temperature reading\n";
   metric += "sensor_temperature ";
-  metric += temp;
+  metric += temperature;
   metric += " {sensor=\"DHT22\", id=\"";
   metric += String(id);
   metric += "\"} \n";
@@ -590,6 +592,7 @@ void processRequest(EthernetClient client)
   } else if (action == "save_settings") {
     // Save IP address, subnet mask, and MAC address to EEPROM
     // Extract parameters from the request (if any)
+    String id= getValue(body, "id");
     String ipAddressParam = getValue(body, "ip_address");
     String subnetMaskParam = getValue(body, "subnet_mask");
     String macAddressParam = getValue(body, "mac_address");
@@ -599,6 +602,8 @@ void processRequest(EthernetClient client)
 
     if (SERIAL_DEBUG)
     {
+      Serial.print("ID:");
+      Serial.println(id);
       Serial.print("New IP Address:");
       Serial.println(ipAddressParam);
       Serial.print("New Subnet Mask:");
@@ -716,6 +721,11 @@ void processRequest(EthernetClient client)
     client.print("<h2>Settings</h2>");
     client.print("<form method='post' action='?action=save_settings'>");
     client.print("<div class=\"table\">");
+
+
+    client.print("<div class=\"row\"><div class=\"cell\">ID:</div> <div class=\"cell\"><input type='text' name='id' value='");
+    client.print(id);
+    client.print("'></div></div>");
 
     client.print("<div class=\"row\"><div class=\"cell\">IP Address:</div> <div class=\"cell\"><input type='text' name='ip_address' value='");
     
