@@ -26,6 +26,8 @@
 // Define pins for sensors
 #define DHT_PIN 8
 
+#define FACTORY_RESET_PIN 37
+
 
 // Define LCD pins
 #define LCD_RS 20
@@ -34,11 +36,19 @@
 #define LCD_D5 23
 #define LCD_D6 24
 #define LCD_D7 25
-#define LIGHT_PIN 14
+#define LIGHT_PIN 53
 
 #define EEPROM_SYSTEM_SETTINGS_ADDRESS 0
 #define EEPROM_RUNTIME_SETTINGS_ADDRESS EEPROM_SYSTEM_SETTINGS_ADDRESS + sizeof(SystemSettings)
    
+
+#define IP_ADDRESS_ID "b"
+#define ID_ID "a"
+#define SUBNET_MASK_ID "c"
+#define MAC_ADDRESS_ID "d"
+#define SETPOINT_TEMPERATURE_ID "e"
+#define SETPOINT_HUMIDITY_ID "f"
+#define SUBMIT_ID "s"
 
 #define LOG_INTERVAL 1000
 
@@ -57,7 +67,7 @@ EthernetLinkStatus g_LinkStatus;
 EthernetLinkStatus g_PreviousLinkStatus;
 
 // Define LCD object
-LiquidCrystal lcd(LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
+//LiquidCrystal lcd(LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 
 // Define DHT sensor object
 #define DHTTYPE DHT22   // DHT 11
@@ -198,6 +208,7 @@ void setup_Arduino()
     pinMode(53, OUTPUT); // for arduino Mega 2560 in order to have SPI interface working
   #endif
 
+
   //layout check
   CheckChannelPIN(FAN_AIR_CIRCULATION_PIN, "FAN AIR CIRCULATION");
   CheckChannelPIN(FAN_DEHUMIDIFIER_PIN, "FAN DEHUMIDIFIER");
@@ -211,6 +222,7 @@ void setup_Arduino()
   CheckChannelPIN(LCD_D6, "LCD D6");
   CheckChannelPIN(LCD_D7, "LCD D7");
   CheckChannelPIN(LIGHT_PIN, "LIGHT");
+  CheckChannelPIN(FACTORY_RESET_PIN, "FACTORY RESET");
 
     
   // Initialize relays
@@ -218,14 +230,15 @@ void setup_Arduino()
   pinMode(FAN_DEHUMIDIFIER_PIN, OUTPUT);
   pinMode(HEATER_PIN, OUTPUT);
   pinMode(WATER_ATOMIZER_PIN, OUTPUT);
+  pinMode(FACTORY_RESET_PIN, INPUT);
   
- 
 }
+
 
 void setup_LCD()
 {
   // Initialize LCD
-  lcd.begin(16, 2);
+//  lcd.begin(16, 2);
 }
 
 void setup_Ethernet()
@@ -290,7 +303,16 @@ void setup_EEPROM(){
    uint8_t hash = simpleHash();
    uint8_t loaded_hash = getHash();
    
-   if (hash ==loaded_hash ){
+   bool factory_reset = digitalRead(FACTORY_RESET_PIN);
+
+   if (factory_reset)
+   {
+      if (SERIAL_DEBUG)
+      Serial.println("Factory Reset PIN is HIGH.");
+      SaveSettings();
+   }
+
+   if (hash == loaded_hash ) {
     LoadSettings();
    }
 }
@@ -422,7 +444,7 @@ void loop()
   loop_Ethernet();
 
   // Update LCD display
-  updateLCD(temperature, humidity);
+  //updateLCD(temperature, humidity);
 }
 
 void start()
@@ -477,16 +499,21 @@ void export_metrics(EthernetClient client){
 
 void processRequest(EthernetClient client)
 {
-  if (client) {
+  if (client)
+  {
+    String request ="";
+       String body ="";
+           String request_header ="";
+    String response ="";
+    
+  {
     // Read the HTTP request
     bool new_line =false;
     String line;
     boolean isBody = false; // Flag to check if we're at the body part of the request
     String postData = ""; // To store POST data
-    String response ="";
-    String request ="";
-    String request_header ="";
-    String body ="";
+ 
+
 
     while (client.connected()) {
       if (client.available())
@@ -517,7 +544,7 @@ void processRequest(EthernetClient client)
        break;
       }
     }
-    
+  }
 
   // Extract the action from the request (if any)
   if (SERIAL_DEBUG){
@@ -571,66 +598,99 @@ void processRequest(EthernetClient client)
   } else if (action == "save_settings") {
     // Save IP address, subnet mask, and MAC address to EEPROM
     // Extract parameters from the request (if any)
-    String idParam= getValue(body, "id");
-    String ipAddressParam = getValue(body, "ip_address");
-    String subnetMaskParam = getValue(body, "subnet_mask");
-    String macAddressParam = getValue(body, "mac_address");
-    String setpoint_tempParam= getValue(body, "setpoint_temp");
-    String setpoint_humidityParam= getValue(body, "setpoint_humidity");
-    String decoded = urlDecode(macAddressParam);
-
-    if (SERIAL_DEBUG)
-    {
-      Serial.print("ID:");
-      Serial.println(idParam);
-      Serial.print("New IP Address:");
-      Serial.println(ipAddressParam);
-      Serial.print("New Subnet Mask:");
-      Serial.println(subnetMaskParam);
-      Serial.print("New MAC Address:");
-      Serial.println(macAddressParam);
-      Serial.print("Decoded MAC Address:");
-      Serial.println(decoded);
-      Serial.print("New Setpoint Temperature:");
-      Serial.println(setpoint_tempParam);
-      Serial.print("New Setpoint Humidity:");
-      Serial.println(setpoint_humidityParam);
-    }
-
-    IPAddress new_ipAddress;
-
+ 
+   
     //ip address
-    if (new_ipAddress.fromString(ipAddressParam))
-      g_SystemSettings.ipAddress = new_ipAddress;
-    else
-      response = "ERROR: IP Address is not valid.";
-    
+    {
+      String ipAddressParam = getValue(body, IP_ADDRESS_ID);
+      if (SERIAL_DEBUG)
+      {
+        Serial.print("New IP Address:");
+        Serial.println(ipAddressParam);
+      }
+
+      IPAddress new_ipAddress;
+
+      //ip address
+      if (new_ipAddress.fromString(ipAddressParam))
+        g_SystemSettings.ipAddress = new_ipAddress;
+      else
+        response = "ERROR: IP Address is not valid.";
+    }
 
     //subnet
-    IPAddress new_subnetMask;
-    if (new_subnetMask.fromString(subnetMaskParam))
-      g_SystemSettings.subnetMask = new_subnetMask;
-    else
-      response = "ERROR: Subnet mask is not valid.";
-    
-
-    //mac address
-    byte new_macAddress[6];
-    if (parseMACAddress(decoded, new_macAddress))
     {
-      memcpy(new_macAddress,g_SystemSettings.macAddress, sizeof(g_SystemSettings.macAddress));
+      String subnetMaskParam = getValue(body, SUBNET_MASK_ID);
+  
+      if (SERIAL_DEBUG)
+      {
+        Serial.print("New Subnet Mask:");
+        Serial.println(subnetMaskParam);
+      }
+      IPAddress new_subnetMask;
+      if (new_subnetMask.fromString(subnetMaskParam))
+        g_SystemSettings.subnetMask = new_subnetMask;
+      else
+        response = "ERROR: Subnet mask is not valid.";
     }
 
+    //mac address
+    {
+      String macAddressParam = getValue(body, MAC_ADDRESS_ID);
+      String decoded = urlDecode(macAddressParam);
+
+      if (SERIAL_DEBUG)
+      {
+        Serial.print("New MAC Address:");
+        Serial.println(macAddressParam);
+        Serial.print("Decoded MAC Address:");
+        Serial.println(decoded);
+      }
+        byte new_macAddress[6];
+        if (parseMACAddress(decoded, new_macAddress))
+        {
+          memcpy(new_macAddress,g_SystemSettings.macAddress, sizeof(g_SystemSettings.macAddress));
+        }
+    }
 
     //setpoint temperature
-    if (!tryParseDouble(setpoint_tempParam, g_SystemSettings.setpoint_temp))
-      response = "Temperature setpoint is not a number.";
+    {
+      String setpoint_tempParam = getValue(body, SETPOINT_TEMPERATURE_ID);
+      if (SERIAL_DEBUG)
+      {
+        Serial.print("New Setpoint Temperature:");
+        Serial.println(setpoint_tempParam);
+      }
+      
+      if (!tryParseDouble(setpoint_tempParam, g_SystemSettings.setpoint_temp))
+        response = "Temperature setpoint is not a number.";
+    }
 
     //setpoint humidity
-    if (!tryParseDouble(setpoint_humidityParam, g_SystemSettings.setpoint_humidity))
-      response = "Humidity setpoint is not a number.";
+    {
+      String setpoint_humidityParam= getValue(body,SETPOINT_HUMIDITY_ID);
+      if (SERIAL_DEBUG)
+      {
 
-    g_SystemSettings.id = atoi(idParam.c_str());
+        Serial.print("New Setpoint Humidity:");
+        Serial.println(setpoint_humidityParam);
+      }
+
+      if (!tryParseDouble(setpoint_humidityParam, g_SystemSettings.setpoint_humidity))
+        response = "Humidity setpoint is not a number.";
+    }
+
+    //ID
+    {
+     String idParam= getValue(body, ID_ID);
+ 
+     if (SERIAL_DEBUG)
+     {
+       Serial.print("ID:");
+       Serial.println(idParam);
+     }
+     g_SystemSettings.id = atoi(idParam.c_str());
+    }
 
     SaveSettings();
   }else  if (action == "air_circulation" ) {
@@ -702,11 +762,11 @@ void processRequest(EthernetClient client)
     client.print("<div class=\"table\">");
 
 
-    client.print("<div class=\"row\"><div class=\"cell\">ID:</div> <div class=\"cell\"><input type='text' name='id' value='");
+    client.print("<div class=\"row\"><div class=\"cell\">ID:</div> <div class=\"cell\"><input type='text' name='" ID_ID "' value='");
     client.print(g_SystemSettings.id);
     client.print("'></div></div>");
 
-    client.print("<div class=\"row\"><div class=\"cell\">IP Address:</div> <div class=\"cell\"><input type='text' name='ip_address' value='");
+    client.print("<div class=\"row\"><div class=\"cell\">IP Address:</div> <div class=\"cell\"><input type='text' name='" IP_ADDRESS_ID "' value='");
     
     //print ip
     client.print(g_SystemSettings.ipAddress[0]);
@@ -718,7 +778,7 @@ void processRequest(EthernetClient client)
     client.print(g_SystemSettings.ipAddress[3]);
     client.print("'></div></div>");
 
-    client.print("<div class=\"row\"><div class=\"cell\">Subnet Mask</div> <div class=\"cell\"><input type='text' name='subnet_mask' value='");
+    client.print("<div class=\"row\"><div class=\"cell\">Subnet Mask</div> <div class=\"cell\"><input type='text' name='" SUBNET_MASK_ID "' value='");
     //print mask
     client.print(g_SystemSettings.subnetMask[0]);
     client.print(".");
@@ -729,22 +789,22 @@ void processRequest(EthernetClient client)
     client.print(g_SystemSettings.subnetMask[3]);
     client.print("'></div></div>");
 
-    client.print("<div class=\"row\"><div class=\"cell\">MAC Address</div> <div class=\"cell\"><input type='text' name='mac_address' value='");
+    client.print("<div class=\"row\"><div class=\"cell\">MAC Address</div> <div class=\"cell\"><input type='text' name='" MAC_ADDRESS_ID  "' value='");
     //print mac
     client.print(mac2String(g_SystemSettings.macAddress));
     client.print("'></div></div>");
 
     //setpoint_temp
-    client.print("<div class=\"row\"><div class=\"cell\">Temperature Setpoint</div> <div class=\"cell\"><input type='text' name='setpoint_temp' value='");
+    client.print("<div class=\"row\"><div class=\"cell\">Temperature Setpoint</div> <div class=\"cell\"><input type='text' name='" SETPOINT_TEMPERATURE_ID "' value='");
     client.print(g_SystemSettings.setpoint_temp);
     client.print("'></div></div>");
 
     //setpoint_humidity
-    client.print("<div class=\"row\"><div class=\"cell\">Humidity Setpoint</div> <div class=\"cell\"><input type='text' name='setpoint_humidity' value='");
+    client.print("<div class=\"row\"><div class=\"cell\">Humidity Setpoint</div> <div class=\"cell\"><input type='text' name='" SETPOINT_HUMIDITY_ID "' value='");
     client.print(g_SystemSettings.setpoint_humidity);
     client.print("'></div></div>");
 
-    client.print("<div class=\"row\"><div class=\"cell\"><button class='btn' name='submit' value='true'>Save Settings</button></div></div>");
+    client.print("<div class=\"row\"><div class=\"cell\"><button class='btn' name='" SUBMIT_ID "' value='true'>Save Settings</button></div></div>");
     client.print("</form>");
 
     if (action != "") {
@@ -888,7 +948,7 @@ client.print(pid_humidity);
 }
 
 
-  bool tryParseDouble (String input, double& output)
+  bool tryParseDouble (String& input, double& output)
   {
     input.trim();
 
@@ -950,6 +1010,24 @@ void SaveRuntimeSettings()
 
     EEPROM.get(EEPROM_RUNTIME_SETTINGS_ADDRESS, g_RuntimeSettings);
     EEPROM.get(EEPROM_SYSTEM_SETTINGS_ADDRESS, g_SystemSettings);
+
+     if (SERIAL_DEBUG){
+      Serial.print("ID: ");
+     Serial.println( g_SystemSettings.id );
+
+      Serial.print("IP Address: ");
+      Serial.println( g_SystemSettings.ipAddress );
+      Serial.print("Netmask: ");
+      Serial.println( g_SystemSettings.subnetMask );
+      Serial.print("Mac Address: ");
+      Serial.println( mac2String(g_SystemSettings.macAddress) );
+
+      Serial.print("Setpoint humidity: ");
+      Serial.println( g_SystemSettings.setpoint_humidity );
+      Serial.print("Setpoint temperature: ");
+      Serial.println( g_SystemSettings.setpoint_temp );
+     }
+
   }
   
 float readTemperature() {
@@ -1080,6 +1158,7 @@ void logData(float temperature, float humidity) {
 
 void updateLCD(float temperature, float humidity) {
   // Update LCD display with current temperature and humidity
+  /*
   lcd.setCursor(0, 0);
   lcd.print("Temp: ");
   lcd.print(temperature);
@@ -1088,9 +1167,10 @@ void updateLCD(float temperature, float humidity) {
   lcd.print("Humidity: ");
   lcd.print(humidity);
   lcd.print("%");
+  */
 }
 
-String getValue(String data, String key) {
+String getValue(String& data, String key) {
   // Extract value associated with the key from the data
   String value = "";
   int keyIndex = data.indexOf(key);
@@ -1118,7 +1198,7 @@ String mac2String(byte ar[]) {
 }
 
 // Convert MAC address string to byte array
-bool parseMACAddress(String macStr, byte* macArray) {
+bool parseMACAddress(String& macStr, byte* macArray) {
   int byteIndex = 0;
   int strIndex = 0;
   while (byteIndex < 6) {
@@ -1152,7 +1232,7 @@ bool parseMACAddress(String macStr, byte* macArray) {
   return strIndex == macStr.length();
 }
 
-String urlDecode(String encodedString) {
+String urlDecode(String& encodedString) {
     String decodedString = "";
     char tempChar;
     int num;
